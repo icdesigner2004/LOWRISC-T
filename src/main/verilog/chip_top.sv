@@ -26,6 +26,23 @@ module chip_top
    output        ddr_cs_n,
    output [7:0]  ddr_dm,
    output        ddr_odt,
+ `elsif NEXYS4_VIDEO
+   // DDR3 RAM
+     inout [15:0]  ddr_dq,
+     inout [1:0]   ddr_dqs_n,
+     inout [1:0]   ddr_dqs_p,
+     output [14:0] ddr_addr,
+     output [2:0]  ddr_ba,
+     output        ddr_ras_n,
+     output        ddr_cas_n,
+     output        ddr_we_n,
+     output        ddr_reset_n,
+     output        ddr_ck_n,
+     output        ddr_ck_p,
+     output        ddr_cke,
+ //    output        ddr_cs_n,
+     output [1:0]  ddr_dm,
+     output        ddr_odt,
  `elsif NEXYS4
    // DDR2 RAM
    inout [15:0]  ddr_dq,
@@ -203,16 +220,28 @@ module chip_top
       .m_axi_rready         ( mem_mig_nasti.r_ready    )
       );
 
+ `ifdef NEXYS4_VIDEO
+        //clock generator
+        logic mig_sys_clk, clk_locked;
+        clk_wiz_0 clk_gen
+          (
+           .clk_in1     ( clk_p         ), // 100 MHz onboard
+           .clk_out1    ( mig_sys_clk   ), // 200 MHz
+           .reset       ( rst_top       ),
+           .locked      ( clk_locked    )
+           );
+ `endif //  `ifdef NEXYS4
+
  `ifdef NEXYS4
-   //clock generator
-   logic mig_sys_clk, clk_locked;
-   clk_wiz_0 clk_gen
-     (
-      .clk_in1     ( clk_p         ), // 100 MHz onboard
-      .clk_out1    ( mig_sys_clk   ), // 200 MHz
-      .resetn      ( rst_top       ),
-      .locked      ( clk_locked    )
-      );
+        //clock generator
+        logic mig_sys_clk, clk_locked;
+        clk_wiz_0 clk_gen
+          (
+           .clk_in1     ( clk_p         ), // 100 MHz onboard
+           .clk_out1    ( mig_sys_clk   ), // 200 MHz
+           .resetn      ( rst_top       ),
+           .locked      ( clk_locked    )
+           );
  `endif //  `ifdef NEXYS4
 
    // DRAM controller
@@ -238,6 +267,29 @@ module chip_top
       .ddr3_cs_n            ( ddr_cs_n               ),
       .ddr3_dm              ( ddr_dm                 ),
       .ddr3_odt             ( ddr_odt                ),
+ `elsif NEXYS4_VIDEO
+     // System Clock Ports
+     .sys_clk_i                      (mig_sys_clk),
+     .sys_rst                        (clk_locked), // input sys_rst
+     .ui_addn_clk_0                  (clk),
+     .device_temp_i                  (0),
+     // Memory interface ports
+     .ddr3_addr                      (ddr_addr),  // output [14:0]        ddr3_addr
+     .ddr3_ba                        (ddr_ba),  // output [2:0]        ddr3_ba
+     .ddr3_cas_n                     (ddr_cas_n),  // output            ddr3_cas_n
+     .ddr3_ck_n                      (ddr_ck_n),  // output [0:0]        ddr3_ck_n
+     .ddr3_ck_p                      (ddr_ck_p),  // output [0:0]        ddr3_ck_p
+     .ddr3_cke                       (ddr_cke),  // output [0:0]        ddr3_cke
+     .ddr3_ras_n                     (ddr_ras_n),  // output            ddr3_ras_n
+     .ddr3_reset_n                   (ddr_reset_n),  // output            ddr3_reset_n
+     .ddr3_we_n                      (ddr_we_n),  // output            ddr3_we_n
+     .ddr3_dq                        (ddr_dq),  // inout [15:0]        ddr3_dq
+     .ddr3_dqs_n                     (ddr_dqs_n),  // inout [1:0]        ddr3_dqs_n
+     .ddr3_dqs_p                     (ddr_dqs_p),  // inout [1:0]        ddr3_dqs_p
+     .init_calib_complete            (init_calib_complete),  // output            init_calib_complete
+       
+     .ddr3_dm                        (ddr_dm),  // output [1:0]        ddr3_dm
+     .ddr3_odt                       (ddr_odt),  // output [0:0]        ddr3_odt
  `elsif NEXYS4
       .sys_clk_i            ( mig_sys_clk            ),
       .sys_rst              ( clk_locked             ),
@@ -387,7 +439,7 @@ module chip_top
    logic [BRAM_ADDR_LSB_BITS-1:0] ram_lsb_addr, ram_lsb_addr_delay;
    logic [BRAM_WIDTH/8-1:0]       ram_we_full;
    logic [BRAM_WIDTH-1:0]         ram_wrdata_full, ram_rddata_full;
-   int                            ram_rddata_shift, ram_we_shift;
+   int                            ram_rddata_shift, ram_we_shift, i;
 
    assign ram_block_addr = ram_addr >> BRAM_ADDR_LSB_BITS + BRAM_OFFSET_BITS;
    assign ram_lsb_addr = ram_addr >> BRAM_OFFSET_BITS;
@@ -399,7 +451,7 @@ module chip_top
      if(ram_en) begin
         ram_block_addr_delay <= ram_block_addr;
         ram_lsb_addr_delay <= ram_lsb_addr;
-        foreach (ram_we_full[i])
+        for (i = 0; i < BRAM_WIDTH/8; i=i+1)
           if(ram_we_full[i]) ram[ram_block_addr][i*8 +:8] <= ram_wrdata_full[i*8 +: 8];
      end
 
@@ -463,17 +515,54 @@ module chip_top
       );
 
    // tri-state gate to protect SPI IOs
-   assign spi_mosi = !spi_mosi_t ? spi_mosi_o : 1'bz;
+
+   OBUFT #(
+      .DRIVE(12),   // Specify the output drive strength
+      .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
+      .SLEW("SLOW") // Specify the output slew rate
+   ) OBUFT_spi_mosi (
+      .O(spi_mosi),     // Buffer output (connect directly to top-level port)
+      .I(spi_mosi_o),     // Buffer input
+      .T(spi_mosi_t)      // 3-state enable input 
+   );
+
    assign spi_mosi_i = 1'b1;    // always in master mode
 
-   assign spi_miso = !spi_miso_t ? spi_miso_o : 1'bz;
-   assign spi_miso_i = spi_miso;
+   IOBUF #(
+      .DRIVE(12), // Specify the output drive strength
+      .IBUF_LOW_PWR("TRUE"),  // Low Power - "TRUE", High Performance = "FALSE" 
+      .IOSTANDARD("DEFAULT"), // Specify the I/O standard
+      .SLEW("SLOW") // Specify the output slew rate
+   ) IOBUF_spi_miso (
+      .O(spi_miso_i),     // Buffer output
+      .IO(spi_miso),   // Buffer inout port (connect directly to top-level port)
+      .I(spi_miso_o),     // Buffer input
+      .T(spi_miso_t)      // 3-state enable input, high=input, low=output
+   );
 
-   assign spi_sclk = !spi_sclk_t ? spi_sclk_o : 1'bz;
+   OBUFT #(
+      .DRIVE(12),   // Specify the output drive strength
+      .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
+      .SLEW("SLOW") // Specify the output slew rate
+   ) OBUFT_spi_sclk (
+      .O(spi_sclk),     // Buffer output (connect directly to top-level port)
+      .I(spi_sclk_o),     // Buffer input
+      .T(spi_sclk_t)      // 3-state enable input 
+   );
+
    assign spi_sclk_i = 1'b1;    // always in master mode
 
-   assign spi_cs = !spi_cs_t ? spi_cs_o : 1'bz;
-   assign spi_cs_i = 1'b1;;     // always in master mode
+   OBUFT #(
+      .DRIVE(12),   // Specify the output drive strength
+      .IOSTANDARD("DEFAULT"), // Specify the output I/O standard
+      .SLEW("SLOW") // Specify the output slew rate
+   ) OBUFT_spi_cs (
+      .O(spi_cs),     // Buffer output (connect directly to top-level port)
+      .I(spi_cs_o),     // Buffer input
+      .T(spi_cs_t)      // 3-state enable input 
+   );
+
+   assign spi_cs_i = 1'b1;     // always in master mode
 
 `else // !`ifdef ADD_SPI
 
@@ -521,7 +610,7 @@ module chip_top
    u_debug_system
      (
       .*,
-      .uart_irq        ( uart_irq               ),
+      .uart_irq        (uart_irq),
       .uart_ar_addr    ( io_uart_lite.ar_addr   ),
       .uart_ar_ready   ( io_uart_lite.ar_ready  ),
       .uart_ar_valid   ( io_uart_lite.ar_valid  ),
