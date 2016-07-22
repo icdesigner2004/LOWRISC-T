@@ -40,9 +40,9 @@ module chip_top
      output        ddr_ck_n,
      output        ddr_ck_p,
      output        ddr_cke,
- //    output        ddr_cs_n,
      output [1:0]  ddr_dm,
      output        ddr_odt,
+     output        init_calib_complete,
  `elsif NEXYS4
    // DDR2 RAM
    inout [15:0]  ddr_dq,
@@ -81,7 +81,8 @@ module chip_top
    );
 
    // internal clock and reset signals
-   logic  clk, rst, rstn;
+   logic 	 clk, rst, rstn;
+   
    assign rst = !rstn;
 
    // Debug controlled reset of the Rocket system
@@ -230,6 +231,7 @@ module chip_top
            .reset       ( rst_top       ),
            .locked      ( clk_locked    )
            );
+ 
  `endif //  `ifdef NEXYS4
 
  `ifdef NEXYS4
@@ -272,7 +274,6 @@ module chip_top
      .sys_clk_i                      (mig_sys_clk),
      .sys_rst                        (clk_locked), // input sys_rst
      .ui_addn_clk_0                  (clk),
-     .device_temp_i                  (0),
      // Memory interface ports
      .ddr3_addr                      (ddr_addr),  // output [14:0]        ddr3_addr
      .ddr3_ba                        (ddr_ba),  // output [2:0]        ddr3_ba
